@@ -6,3 +6,4 @@ examples
 input
 .*pycache
 save
+save/ckpt/texture_global/diffusion_pytorch_model.bin
