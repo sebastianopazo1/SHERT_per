@@ -250,16 +250,18 @@ class Index_UV_Generator(nn.Module):
 
     def get_UV_map(self, verts):
         self.bary_weights = self.bary_weights.type(verts.dtype).to(verts.device)
-
-        change = np.where(self.v_index.cpu().numpy()==149921, 0, self.v_index.cpu().numpy())
-        self.v_index = torch.from_numpy(change).to(verts.device)
-
+        
+        # Ensure indices are valid
+        v_index = torch.clamp(self.v_index, min=0, max=verts.shape[1]-1).to(verts.device)
+        
         if verts.dim() == 2:
             verts = verts.unsqueeze(0)
-
-        im = verts[:, self.v_index, :]
+        
+        # Sample features with bounds checking
+        im = verts[:, v_index, :]
         bw = self.bary_weights[:, :, None, :]
-
+        
+        # Ensure valid multiplication
         im = torch.matmul(bw, im).squeeze(dim=3)
         return im
 

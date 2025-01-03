@@ -61,133 +61,180 @@ def get_calib(param, img_size):
     calib = np.matmul(intrinsic, extrinsic).astype(float)
     return calib, R, translate
 
-def projection(vertices, faces, img, img_mask, tex_mask, calib, sampler, device, dilate_iter=3, front_only=False):
-
-    mesh = trimesh.Trimesh()
-    mesh.faces = faces[..., 0] - 1
-
-    # vertices_econ = back_to_econ_axis(vertices, param, angle)
-    vertices_econ = vertices
-    mesh.vertices = vertices_econ
-
-    # projection
-    directions = np.array([0, 0, 1.], dtype=float)
-    directions = np.repeat(directions[None, :], len(vertices), axis=0)
-    rays = np.concatenate([vertices_econ, directions], axis=-1)
-    vertices_econ_tensor = torch.from_numpy(vertices_econ).float().unsqueeze(dim=0).permute(0, 2, 1)
-
-    crop_query_points = orthogonal(vertices_econ_tensor, calib, None)
-    xy = crop_query_points[:, :2, :]
-    z = crop_query_points[:, 2:3, :]
-
-    mask_fea = index(img_mask, xy).permute(0, 2, 1)[0].numpy().sum(axis=-1)
-    mask_fea[mask_fea!=0]=1
-    sample_fea = index(img, xy).permute(0, 2, 1)[0].numpy()
-
-    # calculate the occlusion
-    if front_only:
-        front_orient = ray_cast_trimesh(mesh)
-        front_orient[mask_fea==0]=True
-        sample_fea[front_orient] = 1.
-    else:
-        sample_fea[mask_fea==0] = 1. 
-
-    # remove occlusion
-    partial_tex = sampler.get_UV_map(torch.from_numpy(sample_fea).unsqueeze(dim=0).to(device=device))
-    partial_tex = partial_tex.cpu().numpy()[0].astype(np.float32)
-
-    if front_only:
-        sample_fea[front_orient] = 2.
-    else:
-        sample_fea[mask_fea==0] = 2.
-
-    partial_tex_diff = sampler.get_UV_map(torch.from_numpy(sample_fea).unsqueeze(dim=0).to(device=device))
-    partial_tex_diff = partial_tex_diff.cpu().numpy()[0].astype(np.float32)
-
-    diff = partial_tex - partial_tex_diff
-    diff[diff != 0] = 1
-    partial_tex[diff==1]=0
-
-    partial_tex = cv2.flip(partial_tex, 0)
-    partial_tex_mask = inverse_mask(partial_tex)
-
-    partial_tex[partial_tex_mask==1]=1
-    partial_tex[tex_mask == 0.] = 0. 
-    partial_tex_mask[tex_mask == 0.] = 0.
-
-    # dilation
-    kernel = np.array([[0, 1, 0],
-                    [1, 1, 1],
-                    [0, 1, 0]]).astype(np.uint8)
-    partial_tex_mask = cv2.dilate(partial_tex_mask.astype(np.uint8), kernel, iterations=dilate_iter)
-    partial_tex_mask = cv2.cvtColor(partial_tex_mask, cv2.COLOR_RGB2GRAY)
-    partial_tex_mask = cv2.cvtColor(partial_tex_mask, cv2.COLOR_GRAY2RGB)
-
-    partial_tex[partial_tex_mask==1]=0
-    partial_tex = cv2.cvtColor(partial_tex, cv2.COLOR_RGB2BGR)
-
-    return partial_tex, partial_tex_mask, sample_fea
-
-def texture_projection(files, cfg, cfg_resources, uv_sampler, device, save_root=None, front_only=False, vertex_color=False, camera_param_path=None):
-
-    mesh_path = files['completed_mesh']
-    image_path = files['image']
-    mask_path = files['mask']
-
-    # Default
-    front_only = False
-    vertex_color = False
-
-    if check_key(cfg, ['parameters', 'color_projection']):
-        if check_key(cfg.parameters.color_projection, ['front_only']):
-            front_only = cfg.parameters.color_projection.front_only
-        if check_key(cfg.parameters.color_projection, ['vertex_color']):
-            vertex_color = cfg.parameters.color_projection.vertex_color
-
-    vertices, _, faces = load_obj(mesh_path)
-
-    if camera_param_path is not None:
-        param = np.load(camera_param_path, allow_pickle=True).item()
-        vertices_pro = (vertices - param['center']) * param['scale'] / 100
-        vertices_pro = np.matmul(param['R'], vertices_pro.transpose(1, 0)).transpose(1, 0)
-    else:
-        vertices_pro = vertices.copy()
-
-    uv_mask_path = cfg_resources.masks.mask_wo_eyes
-
-    calib = np.load(cfg_resources.econ_calib)
-    calib = torch.from_numpy(calib).float().unsqueeze(dim=0)
-
-    img = cv2.imread(image_path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) /255.
-    img = torch.from_numpy(img).float().permute(2, 0, 1).unsqueeze(dim=0)
-
-    mask = cv2.imread(mask_path) /255.
-    mask = torch.from_numpy(mask).float().permute(2, 0, 1).unsqueeze(dim=0)
-
-    tex_mask = cv2.imread(uv_mask_path) / 255.
-    tex_mask = cv2.flip(tex_mask, 0)
-
-    tex, mask, colors = projection(vertices_pro, faces, img, mask, tex_mask, calib, uv_sampler, device, front_only=front_only)
-
-    if save_root is not None:
-
-        tex_path = os.path.join(save_root, 'partial_tex.png')
-        mask_path = os.path.join(save_root, 'partial_mask.png')
-        mesh_path = os.path.join(save_root, 'partial_colored.obj')
-        mtl_path = os.path.join(save_root, 'texture.mtl')
-
-        cv2.imwrite(tex_path, tex * 255)
-        cv2.imwrite(mask_path, mask * 255)
-
-        _, vts, faces = load_obj(cfg_resources.models.smplx_vts_template)
-
-        # if need vertex color
-        if vertex_color:
-            save_mtl(vertices, faces, vts, mesh_path, mtl_path, 'partial_tex.png', colors=colors)
+def texture_projection(files, cfg, cfg_resources, uv_sampler, device, save_root=None, camera_param_path=None):
+    try:
+        # Load mesh
+        vertices, _, faces = load_obj(files['completed_mesh'])
+        if vertices.size == 0 or faces.size == 0:
+            raise ValueError("Invalid mesh data")
+        vertices = vertices.astype(np.float32)
+        vertices_tensor = torch.from_numpy(vertices).to(device)
+        
+        # Load and verify image
+        img = cv2.imread(files['image'])
+        if img is None:
+            raise ValueError(f"Could not load image from {files['image']}")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.
+        img = torch.from_numpy(img).float().permute(2, 0, 1).unsqueeze(dim=0).to(device)
+        
+        # Load and verify mask
+        mask = cv2.imread(files['mask'])
+        if mask is None:
+            raise ValueError(f"Could not load mask from {files['mask']}")
+        mask = mask.astype(np.float32) / 255.
+        mask = torch.from_numpy(mask).float().permute(2, 0, 1).unsqueeze(dim=0).to(device)
+        
+        # Load UV mask
+        tex_mask = cv2.imread(cfg_resources.masks.mask_wo_eyes)
+        if tex_mask is None:
+            raise ValueError("Could not load UV mask")
+        tex_mask = tex_mask.astype(np.float32) / 255.
+        tex_mask = cv2.flip(tex_mask, 0)
+        tex_mask_tensor = torch.from_numpy(tex_mask).to(device)
+        
+        # Load calibration
+        if camera_param_path is not None:
+            param = np.load(camera_param_path, allow_pickle=True).item()
+            vertices_pro = (vertices - param['center']) * param['scale'] / 100
+            vertices_pro = np.matmul(param['R'], vertices_pro.transpose(1, 0)).transpose(1, 0)
         else:
-            save_mtl(vertices, faces, vts, mesh_path, mtl_path, 'partial_tex.png')
+            vertices_pro = vertices.copy()
+            
+        calib = np.load(cfg_resources.econ_calib)
+        calib = torch.from_numpy(calib).float().unsqueeze(dim=0).to(device)
+        
+        # Perform projection
+        tex, mask, colors = projection(
+            vertices=vertices_tensor,
+            faces=faces,
+            img=img,
+            img_mask=mask,
+            tex_mask=tex_mask_tensor,
+            calib=calib,
+            sampler=uv_sampler,
+            device=device,
+            dilate_iter=3,
+            front_only=False
+        )
+        
+        if tex is None or mask is None or colors is None:
+            raise ValueError("Projection failed")
 
-        return tex_path, mask_path, mesh_path
+        if save_root is not None:
+            os.makedirs(save_root, exist_ok=True)
+            tex_path = os.path.join(save_root, 'partial_tex.png')
+            mask_path = os.path.join(save_root, 'partial_mask.png')
+            mesh_path = os.path.join(save_root, 'partial_colored.obj')
+            mtl_path = os.path.join(save_root, 'texture.mtl')
+            
+            cv2.imwrite(tex_path, tex * 255)
+            cv2.imwrite(mask_path, mask * 255)
+            
+            _, vts, _ = load_obj(cfg_resources.models.smplx_vts_template)
+            save_mtl(vertices, faces, vts, mesh_path, mtl_path, 'partial_tex.png', colors=colors)
+            
+            return tex_path, mask_path, mesh_path
+            
+        return tex, mask, colors
+        
+    except Exception as e:
+        print(f"Error in texture_projection: {str(e)}")
+        raise
 
-    return tex, mask, colors
+def projection(vertices, faces, img, img_mask, tex_mask, calib, sampler, device, dilate_iter=3, front_only=False):
+    try:
+        # Create trimesh object
+        mesh = trimesh.Trimesh()
+        mesh.faces = faces[..., 0] - 1
+        vertices_econ = vertices.cpu().numpy() if torch.is_tensor(vertices) else vertices
+        mesh.vertices = vertices_econ
+
+        # Project vertices
+        vertices_econ_tensor = torch.from_numpy(vertices_econ).float().unsqueeze(dim=0).permute(0, 2, 1).to(device)
+
+        # Get projected coordinates
+        crop_query_points = orthogonal(vertices_econ_tensor, calib, None)
+        if crop_query_points is None:
+            raise ValueError("Failed to compute orthogonal projection")
+            
+        xy = crop_query_points[:, :2, :]
+        z = crop_query_points[:, 2:3, :]
+
+        # Normalize coordinates to [-1, 1] range
+        xy = torch.clamp(xy, min=-1.0, max=1.0)
+
+        # Sample features with proper error handling
+        mask_fea = index(img_mask, xy)
+        if mask_fea is None:
+            raise ValueError("Failed to sample mask features")
+        mask_fea = mask_fea.permute(0, 2, 1)[0].cpu().numpy().sum(axis=-1)
+        mask_fea[mask_fea!=0] = 1
+
+        sample_fea = index(img, xy)
+        if sample_fea is None:
+            raise ValueError("Failed to sample image features")
+        sample_fea = sample_fea.permute(0, 2, 1)[0].cpu().numpy()
+
+        # Handle occlusions
+        if front_only:
+            front_orient = ray_cast_trimesh(mesh)
+            front_orient[mask_fea==0] = True
+            sample_fea[front_orient] = 1.
+        else:
+            sample_fea[mask_fea==0] = 1.
+
+        # Generate UV map
+        sample_fea_tensor = torch.from_numpy(sample_fea).unsqueeze(dim=0).to(device)
+        partial_tex = sampler.get_UV_map(sample_fea_tensor)
+        if partial_tex is None:
+            raise ValueError("Failed to generate UV map")
+        partial_tex = partial_tex.cpu().numpy()[0].astype(np.float32)
+
+        # Process texture maps
+        if front_only:
+            sample_fea[front_orient] = 2.
+        else:
+            sample_fea[mask_fea==0] = 2.
+
+        partial_tex_diff = sampler.get_UV_map(torch.from_numpy(sample_fea).unsqueeze(dim=0).to(device))
+        partial_tex_diff = partial_tex_diff.cpu().numpy()[0].astype(np.float32)
+
+        diff = partial_tex - partial_tex_diff
+        diff[diff != 0] = 1
+        partial_tex[diff==1] = 0
+
+        # Flip and process masks
+        partial_tex = cv2.flip(partial_tex, 0)
+        partial_tex_mask = inverse_mask(partial_tex)
+
+        # Ensure tex_mask is on correct device and format
+        if torch.is_tensor(tex_mask):
+            tex_mask = tex_mask.cpu().numpy()
+
+        # Apply masks with proper bounds checking
+        partial_tex[partial_tex_mask==1] = 1
+        partial_tex[tex_mask == 0.] = 0.
+        partial_tex_mask[tex_mask == 0.] = 0.
+
+        # Dilate mask
+        kernel = np.array([[0, 1, 0],
+                        [1, 1, 1],
+                        [0, 1, 0]]).astype(np.uint8)
+        partial_tex_mask = cv2.dilate(partial_tex_mask.astype(np.uint8), kernel, iterations=dilate_iter)
+        partial_tex_mask = cv2.cvtColor(partial_tex_mask, cv2.COLOR_RGB2GRAY)
+        partial_tex_mask = cv2.cvtColor(partial_tex_mask, cv2.COLOR_GRAY2RGB)
+
+        # Final processing
+        partial_tex[partial_tex_mask==1] = 0
+        partial_tex = cv2.cvtColor(partial_tex, cv2.COLOR_RGB2BGR)
+
+        # Add debug prints
+        print(f"Partial tex range: [{partial_tex.min()}, {partial_tex.max()}]")
+        print(f"Mask range: [{partial_tex_mask.min()}, {partial_tex_mask.max()}]")
+        print(f"Sample features range: [{sample_fea.min()}, {sample_fea.max()}]")
+
+        return partial_tex, partial_tex_mask, sample_fea
+
+    except Exception as e:
+        print(f"Error in projection function: {str(e)}")
+        return None, None, None

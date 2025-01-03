@@ -1,0 +1,6 @@
+*.pth
+pytorch3d
+data.models.*
+data
+examples
+input

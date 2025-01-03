@@ -31,12 +31,23 @@ def index(feat, uv):
     :param uv: [B, 2, N] uv coordinates in the image plane, range [-1, 1]
     :return: [B, C, N] image features at the uv coordinates
     '''
+    # Ensure uv coordinates are within valid range
+    uv = torch.clamp(uv, min=-1.0, max=1.0)
+    
+    # Reshape for grid_sample
     uv = uv.transpose(1, 2)  # [B, N, 2]
     uv = uv.unsqueeze(2)  # [B, N, 1, 2]
-    # NOTE: for newer PyTorch, it seems that training results are degraded due to implementation diff in F.grid_sample
-    # for old versions, simply remove the aligned_corners argument.
-    samples = torch.nn.functional.grid_sample(feat, uv, align_corners=True)  # [B, C, N, 1]
-    return samples[:, :, :, 0]  # [B, C, N]
+    
+    # Use grid_sample with bounds checking
+    samples = torch.nn.functional.grid_sample(
+        feat, 
+        uv, 
+        mode='bilinear',
+        padding_mode='border',  # Use border padding to handle out-of-bounds
+        align_corners=True
+    )
+    
+    return samples[:, :, :, 0]
 
 
 
