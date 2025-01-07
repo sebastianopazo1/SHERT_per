@@ -1,0 +1,5 @@
+*data
+*pytorch3d
+*__pycache__
+*save
+*examples/test

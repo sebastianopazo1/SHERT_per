@@ -1,0 +1,51 @@
+# Do not forget to modify the root dir
+root: "./examples/demo_scan"
+
+# Set to False to skip
+settings:
+  use_econ: False
+  subdivide: False
+  sns: False
+  # complete: False
+  # refine: False
+  color_projection: False # Scan can obtain the texture by N-ICP
+
+files:
+  image: "image.png"
+  mask: "image_mask.png"
+  front_normal: "normal_front.png"
+  back_normal: "normal_back.png"
+  # mesh: "0524.obj"  # We can not directly share the THuman model. Insteadly, we provide the results after SNS.
+  smplx_param: "smplx_param.pkl"
+  camera: "camera.npy"
+  smplx: "smplx.obj"
+  subsmplx: "results/smplx_d2.obj"
+  sampled_mesh: "results/sns_sample.obj"
+  error_uv: "results/sns_error_uv_mask.png"
+
+parameters:
+  # <-- Change as desired -->
+  sns:
+    use_thuman_smplx_param: True
+    # smplx_gender: 'neutral'
+    # t_max_sample_dis: 0.1
+    # t_angle: 2
+    # t_area: 3
+    # t_edge: 3
+    # t_s_angle: 2
+    # t_s_area: 3
+    # t_s_edge: 3
+    # t_s_connect: 500
+  inpaint:
+    # TODO: dilation:
+    use_smplx: 'face' # [None, 'face', 'head']
+  refine:
+    normal_flip: True
+    # refine_iter: 2  # need pytorch3d if greater than 1
+    # smooth_iter: 3
+    # smooth_lambda: 0.5
+  color_projection:
+  #   front_only: False
+  #   vertex_color: False
+
+

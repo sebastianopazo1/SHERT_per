@@ -249,19 +249,37 @@ class Index_UV_Generator(nn.Module):
 
 
     def get_UV_map(self, verts):
+    
         self.bary_weights = self.bary_weights.type(verts.dtype).to(verts.device)
-
-        change = np.where(self.v_index.cpu().numpy()==149921, 0, self.v_index.cpu().numpy())
-        self.v_index = torch.from_numpy(change).to(verts.device)
-
+        
+        # Ensure indices are valid
+        max_index = verts.shape[1] if verts.dim() > 1 else verts.shape[0]
+        self.v_index = torch.clamp(self.v_index, 0, max_index - 1).to(verts.device)
+        
         if verts.dim() == 2:
             verts = verts.unsqueeze(0)
-
-        im = verts[:, self.v_index, :]
-        bw = self.bary_weights[:, :, None, :]
-
-        im = torch.matmul(bw, im).squeeze(dim=3)
-        return im
+        
+        try:
+            im = verts[:, self.v_index, :]
+            bw = self.bary_weights[:, :, None, :]
+            
+            # Use torch.matmul with error handling
+            try:
+                im = torch.matmul(bw, im).squeeze(dim=3)
+            except RuntimeError as e:
+                print(f"Matrix multiplication failed: {e}")
+                print(f"bw shape: {bw.shape}, im shape: {im.shape}")
+                raise
+                
+            return im
+            
+        except Exception as e:
+            print(f"Error in UV mapping: {e}")
+            print(f"verts shape: {verts.shape}")
+            print(f"v_index shape: {self.v_index.shape}")
+            print(f"v_index max: {self.v_index.max()}")
+            print(f"v_index min: {self.v_index.min()}")
+            raise
 
     def resample(self, uv_map):
         batch_size, _, _, channel_num = uv_map.shape

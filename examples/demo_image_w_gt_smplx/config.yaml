@@ -1,0 +1,57 @@
+# Do not forget to modify the root dir
+root: "./examples/demo_image_w_gt_smplx"
+
+# Set to False to skip
+settings:
+  use_econ: False
+  # subdivide: False
+  # sns: False
+  # complete: False
+  # use_emoca_face: False
+  # face_smooth: False
+  # refine: False
+  # color_projection: False
+
+files:
+  image: "image.png"
+  mask: "image_mask.png"
+  front_normal: "normal_front.png"
+  back_normal: "normal_back.png"
+  mesh: "target.obj"
+  smplx_param: "smplx_param.pkl"
+  camera: "camera.npy"
+  smplx: "smplx.obj"
+  emoca_face: "emoca_face.obj"
+  # subsmplx: "results/smplx_d2.obj"
+  # smplx_star: "results/smplx_star.obj"
+  # sampled_mesh: "results/sns_sample.obj"
+  # error_uv: "results/sns_error_uv_mask.png"
+  # completed_mesh: "results/pred_org_inpaint.obj"
+
+parameters:
+  # <-- Change as desired -->
+  sns:
+    use_thuman_smplx_param: True
+    # smplx_gender: 'neutral'
+    # t_max_sample_dis: 0.1
+    # t_angle: 2
+    # t_area: 3
+    # t_edge: 3
+    # t_s_angle: 2
+    # t_s_area: 3
+    # t_s_edge: 3
+    # t_s_connect: 500
+  inpaint:
+    # TODO: dilation:
+    use_smplx: 'face' # [None, 'face', 'head']
+  refine:
+    normal_flip: False 
+    # refine_iter: 2  # need pytorch3d if greater than 1
+    # smooth_iter: 3
+    # smooth_lambda: 0.5
+  color_projection:
+  #   front_only: False
+  #   vertex_color: False
+
+
+

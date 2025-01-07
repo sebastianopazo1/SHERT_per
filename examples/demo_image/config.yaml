@@ -1,0 +1,48 @@
+# Do not forget to modify the root dir
+root: "./examples/demo_image"
+
+# Set to False to skip
+settings:
+  use_econ: False
+  # subdivide: False
+  # sns: False
+  # complete: False
+  use_emoca_face: False
+  face_smooth: False
+  # refine: False
+  # color_projection: False
+
+files:
+  image: "demo_image.png"
+  mask: "demo_image_mask.png"
+  front_normal: "demo_image_normal_f.png"
+  back_normal: "demo_image_normal_b.png"
+  mesh: "demo_image_0_full.obj"
+  smplx_param: "demo_image_smpl_00.npy"
+  smplx: "demo_image_smpl_00.obj"
+
+parameters:
+  # <-- Change as desired -->
+  sns:
+    use_thuman_smplx_param: False
+    # smplx_gender: 'neutral'
+    # t_max_sample_dis: 0.1
+    # t_angle: 2
+    # t_area: 3
+    # t_edge: 3
+    # t_s_angle: 2
+    # t_s_area: 3
+    # t_s_edge: 3
+    # t_s_connect: 500
+  inpaint:
+    # TODO: dilation:
+    use_smplx: 'head' # [None, 'face', 'head']
+  refine:
+    normal_flip: False
+    # refine_iter: 2  # need pytorch3d if greater than 1
+    # smooth_iter: 3
+    # smooth_lambda: 0.5
+  color_projection:
+    front_only: True
+  #   vertex_color: False
+

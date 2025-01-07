@@ -130,7 +130,8 @@ def projection(vertices, faces, img, img_mask, tex_mask, calib, sampler, device,
 
 def texture_projection(files, cfg, cfg_resources, uv_sampler, device, save_root=None, front_only=False, vertex_color=False, camera_param_path=None):
 
-    mesh_path = files['completed_mesh']
+    #mesh_path = files['completed_mesh']
+    mesh_path = files['mesh']
     image_path = files['image']
     mask_path = files['mask']
 
